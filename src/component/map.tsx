@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import Map, { Marker, Popup, MapMouseEvent } from "react-map-gl";
+import Map, { Marker, Popup, MapMouseEvent, Source, Layer } from "react-map-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "./map.css"; // Import the external CSS
 import { MapPin } from "lucide-react"; // Import Lucide Icons
@@ -19,6 +19,8 @@ const MapComponent: React.FC = () => {
   const [isAddingMarker, setIsAddingMarker] = useState(false);
   const [editMarker, setEditMarker] = useState<MarkerData | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<MarkerData | null>(null);
+  const [polygonPoints, setPolygonPoints] = useState<{ longitude: number; latitude: number }[]>([]);
+  const [savedPolygons, setSavedPolygons] = useState<{ longitude: number; latitude: number }[][]>([]);
 
   useEffect(() => {
     const storedMarkers = localStorage.getItem("markers");
@@ -32,6 +34,18 @@ const MapComponent: React.FC = () => {
         console.error("Failed to parse markers from localStorage:", error);
       }
     }
+
+    const storedPolygons = localStorage.getItem("polygons");
+    if (storedPolygons) {
+      try {
+        const parsedPolygons = JSON.parse(storedPolygons);
+        if (Array.isArray(parsedPolygons)) {
+          setSavedPolygons(parsedPolygons);
+        }
+      } catch (error) {
+        console.error("Failed to parse polygons from localStorage:", error);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -42,9 +56,18 @@ const MapComponent: React.FC = () => {
     }
   }, [markers]);
 
+  useEffect(() => {
+    if (savedPolygons.length > 0) {
+      localStorage.setItem("polygons", JSON.stringify(savedPolygons));
+    } else {
+      localStorage.removeItem("polygons");
+    }
+  }, [savedPolygons]);
+
   const handleMapClick = (event: MapMouseEvent) => {
+    const { lng, lat } = event.lngLat;
+
     if (isAddingMarker) {
-      const { lng, lat } = event.lngLat;
       const newMarker = {
         id: Date.now(),
         longitude: lng,
@@ -54,6 +77,8 @@ const MapComponent: React.FC = () => {
       };
       setMarkers((prevMarkers) => [...prevMarkers, newMarker]);
       setIsAddingMarker(false);
+    } else {
+      setPolygonPoints((prevPoints) => [...prevPoints, { longitude: lng, latitude: lat }]);
     }
   };
 
@@ -73,12 +98,32 @@ const MapComponent: React.FC = () => {
     setMarkers((prevMarkers) => prevMarkers.filter((marker) => marker.id !== id));
   };
 
+  const clearPolygon = () => {
+    setPolygonPoints([]);
+  };
+
+  const savePolygon = () => {
+    if (polygonPoints.length > 2) {
+      setSavedPolygons((prevPolygons) => [...prevPolygons, polygonPoints]);
+      clearPolygon();
+      alert("Polygon has been saved!");
+    } else {
+      alert("A polygon must have at least 3 points!");
+    }
+  };
+
   return (
     <div className="map-container">
-      {/* Button for adding a marker */}
-      <div className="add-marker-button" onClick={() => setIsAddingMarker(true)}>
-        <MapPin size={20} />
-        Add Marker
+      <div className="toolbar">
+        <div className="add-marker-button" onClick={() => setIsAddingMarker(true)}>
+          <MapPin size={20} /> Add Marker
+        </div>
+        <div className="clear-polygon-button" onClick={clearPolygon}>
+          Clear Polygon
+        </div>
+        <div className="save-polygon-button" onClick={savePolygon}>
+          Save Polygon
+        </div>
       </div>
       <Map
         initialViewState={{
@@ -105,6 +150,7 @@ const MapComponent: React.FC = () => {
             </div>
           </Marker>
         ))}
+
         {selectedMarker && (
           <Popup
             longitude={selectedMarker.longitude}
@@ -180,6 +226,47 @@ const MapComponent: React.FC = () => {
             </div>
           </Popup>
         )}
+
+        {polygonPoints.length > 2 && (
+          <Source
+            id="polygon"
+            type="geojson"
+            data={{
+              type: "Feature",
+              geometry: {
+                type: "Polygon",
+                coordinates: [polygonPoints.map((point) => [point.longitude, point.latitude])],
+              },
+            }}
+          >
+            <Layer
+              id="polygon-layer"
+              type="fill"
+              paint={{ "fill-color": "#888888", "fill-opacity": 0.4 }}
+            />
+          </Source>
+        )}
+
+        {savedPolygons.map((polygon, index) => (
+          <Source
+            key={`saved-polygon-${index}`}
+            id={`saved-polygon-${index}`}
+            type="geojson"
+            data={{
+              type: "Feature",
+              geometry: {
+                type: "Polygon",
+                coordinates: [polygon.map((point) => [point.longitude, point.latitude])],
+              },
+            }}
+          >
+            <Layer
+              id={`saved-polygon-layer-${index}`}
+              type="fill"
+              paint={{ "fill-color": "#007bff", "fill-opacity": 0.4 }}
+            />
+          </Source>
+        ))}
       </Map>
     </div>
   );
